@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Football Analyzer</title>
+
+<style>
+body{
+  margin:0;
+  background:#0a0a0a;
+  color:white;
+  font-family:Arial;
+  text-align:center;
+}
+
+h2{margin-top:10px;}
+
+video, canvas{
+  width:90%;
+  max-width:420px;
+  border-radius:12px;
+  margin-top:10px;
+}
+
+button{
+  margin:8px;
+  padding:12px 18px;
+  font-size:15px;
+  border:none;
+  border-radius:10px;
+  background:#1e90ff;
+  color:white;
+}
+
+#panel{
+  background:#111;
+  margin:10px;
+  padding:12px;
+  border-radius:10px;
+}
+
+#score{
+  font-size:22px;
+  margin:5px;
+}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+</head>
+
+<body>
+
+<h2>⚽ Football Analyzer</h2>
+
+<input type="file" accept="video/*" id="upload"><br>
+
+<video id="video" controls></video>
+<canvas id="canvas"></canvas>
+
+<br>
+<button onclick="start()">Analizar</button>
+
+<div id="panel">
+<div id="score">Score: 0</div>
+<div id="feedback">Sube un vídeo</div>
+</div>
+
+<h3>📈 Historial</h3>
+<ul id="history"></ul>
+
+<script>
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let history = JSON.parse(localStorage.getItem("history") || "[]");
+
+document.getElementById("upload").onchange = e=>{
+  video.src = URL.createObjectURL(e.target.files[0]);
+};
+
+const pose = new Pose.Pose({
+  locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`
+});
+
+pose.setOptions({
+  modelComplexity:1,
+  smoothLandmarks:true
+});
+
+pose.onResults(res => {
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  if(!res.poseLandmarks) return;
+
+  const lm = res.poseLandmarks;
+
+  const hip = lm[24];
+  const knee = lm[26];
+  const ankle = lm[28];
+  const shoulder = lm[12];
+
+  function draw(a,b){
+    ctx.beginPath();
+    ctx.moveTo(a.x*canvas.width,a.y*canvas.height);
+    ctx.lineTo(b.x*canvas.width,b.y*canvas.height);
+    ctx.strokeStyle="lime";
+    ctx.lineWidth=3;
+    ctx.stroke();
+  }
+
+  draw(hip,knee);
+  draw(knee,ankle);
+  draw(shoulder,hip);
+
+  let legAngle = Math.atan2(
+    ankle.y-knee.y,
+    ankle.x-knee.x
+  )*180/Math.PI;
+
+  let balance = Math.abs(shoulder.x-hip.x);
+
+  let score = 100;
+
+  if(legAngle>45) score-=30;
+  if(legAngle<-20) score-=30;
+  if(balance>0.1) score-=20;
+
+  score = Math.max(0,score);
+
+  let fb=[];
+
+  if(legAngle>45) fb.push("Baja la pierna (tiro muy alto)");
+  if(legAngle<-20) fb.push("Inclina el cuerpo hacia atrás");
+  if(balance>0.1) fb.push("Mejora el equilibrio");
+  if(fb.length===0) fb.push("Técnica sólida");
+
+  document.getElementById("score").innerText = "Score: "+score;
+  document.getElementById("feedback").innerHTML =
+    fb.map(f=>"<div>"+f+"</div>").join("");
+
+  if(Math.random()<0.05){
+    history.push(score);
+    localStorage.setItem("history",JSON.stringify(history));
+    updateHistory();
+  }
+
+});
+
+function start(){
+  async function loop(){
+    if(video.paused || video.ended) return;
+    await pose.send({image:video});
+    requestAnimationFrame(loop);
+  }
+  video.play();
+  loop();
+}
+
+function updateHistory(){
+  const ul = document.getElementById("history");
+  ul.innerHTML="";
+  history.slice(-10).reverse().forEach(s=>{
+    let li=document.createElement("li");
+    li.innerText="Score: "+s;
+    ul.appendChild(li);
+  });
+}
+
+updateHistory();
+
+</script>
+
+</body>
+</html>
